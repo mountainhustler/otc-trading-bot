@@ -1,9 +1,13 @@
-from telegram import TelegramError
+import json
+
+from telegram import TelegramError, Location
 from telegram.ext import Updater, PicklePersistence, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, \
     run_async
 
 from constants import *
+from helpers import *
 
+# Link users to each other: '[cool guy](tg://user?id=363746372)!\n'
 """
 ######################################################################################################################################################
 BOT RESTART SETUP
@@ -48,6 +52,17 @@ def setup_existing_user(dispatcher):
                 os.remove("./storage/session.data")
 
 
+def setup_kdtrees():
+    pass
+    # BTC Buyers
+    # BTC Sellers
+    # ETH Buyers
+    # ETH Sellers
+    # etc.
+
+    # Each time a user browses/creates offers, his location gets added to the right tree.
+
+
 """
 ######################################################################################################################################################
 Handlers
@@ -62,10 +77,10 @@ def start(update, context):
 
     text = 'Happy Moon! I am your Over The Counter (OTC) Trading Bot. 🤖\n' \
            'Here you can find other people to *buy* and *sell* your *crypto* currencies.\n' \
-           'Whether it is fiat to crypto, crypto to crypto or something different, you can find it here!\n'
+           'Meet up in person, have a phone call or a chat to exchange fiat with crypto!'
 
     # Send message
-    update.message.reply_text(text, parse_mode='markdown')
+    try_message_with_home_menu(context=context, chat_id=update.message.chat.id, text=text)
 
 
 @run_async
@@ -75,6 +90,47 @@ def error(update, context):
     """
 
     logger.warning('Update "%s" caused error: %s', update, context.error)
+
+
+@run_async
+def plain_input(update, context):
+    """
+    Handle if the users sends a message
+    """
+    message = update.message.text
+    expected = context.user_data['expected'] if 'expected' in context.user_data else None
+    if message == '🌎 LOCATION':
+        return ask_for_location(update, context)
+
+
+def ask_for_location(update, context):
+    """
+    User sets his location
+    """
+
+    if 'location' in context.user_data:
+        text = "🌍 *Your location* is currently set to:"
+        try_message(context=context, chat_id=update.message.chat.id, text=text)
+        context.bot.send_location(chat_id=update.message.chat.id,
+                                  longitude=context.user_data['location']["longitude"],
+                                  latitude=context.user_data['location']["latitude"])
+
+    text = "To set a *new location*, go to the *paperclip* 📎 on your keyboard and *send me your location*!\n" \
+           "You *don't need to enable your GPS*, you can also navigate manually on the map. 🖖🏼\n\n" \
+           "(Please note that this is only possible on phones and not on telegram desktop or web apps)."
+    try_message_with_home_menu(context=context, chat_id=update.message.chat.id, text=text)
+
+
+def set_location(update, context):
+    """
+    Sets users location when he sends Location to us
+    """
+
+    context.user_data['location'] = {"longitude": update.message.location.longitude,
+                                     "latitude": update.message.location.latitude}
+
+    text = "Saved your new location 👌"
+    try_message_with_home_menu(context=context, chat_id=update.message.chat.id, text=text)
 
 
 """
@@ -96,6 +152,8 @@ def main():
     setup_existing_user(dispatcher=dispatcher)
 
     dispatcher.add_handler(CommandHandler('start', start))
+    dispatcher.add_handler(MessageHandler(Filters.text, plain_input))
+    dispatcher.add_handler(MessageHandler(Filters.location, set_location))
 
     # log all errors
     dispatcher.add_error_handler(error)
