@@ -1,6 +1,7 @@
 import json
 
-from telegram import TelegramError, Location
+from telegram import TelegramError, Location, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import Updater, PicklePersistence, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, \
     run_async
 
@@ -69,7 +70,7 @@ Handlers
 ######################################################################################################################################################
 """
 
-
+@run_async
 def start(update, context):
     """
     Send start message and display action buttons.
@@ -101,13 +102,48 @@ def plain_input(update, context):
     expected = context.user_data['expected'] if 'expected' in context.user_data else None
     if message == '🌎 LOCATION':
         return ask_for_location(update, context)
+    elif message == '✍️ CREATE BID':
+        return start_create_bid(update, context)
+
+
+@run_async
+def dispatch_query(update, context):
+    """
+    Call right function depending on the button clicked
+    """
+
+    query = update.callback_query
+    query.answer()
+    data = query.data
+
+    context.user_data['expected'] = None
+    edit = True
+    call = None
+
+    if data == 'buy_bid':
+        call = buy_bid
+    elif data == 'sell_bid':
+        call = sell_bid
+    else:
+        edit = False
+
+    # Catch any 'Message is not modified' error by removing the keyboard
+    if edit:
+        try:
+            context.bot.edit_message_reply_markup(reply_markup=None,
+                                                  chat_id=update.callback_query.message.chat_id,
+                                                  message_id=update.callback_query.message.message_id)
+        except BadRequest as e:
+            if 'Message is not modified' in e.message:
+                pass
+            else:
+                raise
+
+    if call:
+        return call(update, context)
 
 
 def ask_for_location(update, context):
-    """
-    User sets his location
-    """
-
     if 'location' in context.user_data:
         text = "🌍 *Your location* is currently set to:"
         try_message(context=context, chat_id=update.message.chat.id, text=text)
@@ -133,6 +169,30 @@ def set_location(update, context):
     try_message_with_home_menu(context=context, chat_id=update.message.chat.id, text=text)
 
 
+def start_create_bid(update, context):
+    if 'location' not in context.user_data:
+        text = "To create a bid, you need to set your location!"
+        return try_message_with_home_menu(context=context, chat_id=update.message.chat.id, text=text)
+
+    text = "Do you want to buy crypto for fiat or sell crypto for fiat? 💶"
+
+    keyboard = [[InlineKeyboardButton('➕ BUY CRYPTO', callback_data='buy_bid'),
+                     InlineKeyboardButton('➖ SELL CRYPTO', callback_data='sell_bid')]]
+    try_message(context=context, chat_id=update.message.chat.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+def buy_bid(update, context):
+    text = "Great that you want to buy crypto!"
+    query = update.callback_query
+    query.edit_message_text(text, parse_mode='markdown')
+
+
+def sell_bid(update, context):
+    text = "Great that you want to sell crypto!"
+    query = update.callback_query
+    query.edit_message_text(text, parse_mode='markdown')
+
+
 """
 ######################################################################################################################################################
 Application
@@ -154,6 +214,7 @@ def main():
     dispatcher.add_handler(CommandHandler('start', start))
     dispatcher.add_handler(MessageHandler(Filters.text, plain_input))
     dispatcher.add_handler(MessageHandler(Filters.location, set_location))
+    dispatcher.add_handler(CallbackQueryHandler(dispatch_query))
 
     # log all errors
     dispatcher.add_error_handler(error)
